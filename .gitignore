@@ -1,0 +1,15 @@
+# Secrets and credentials -- never commit these
+*.key
+*.pem
+*.crt
+kubeconfig
+admin.conf
+*.token
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+*.swp
