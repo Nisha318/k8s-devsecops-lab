@@ -46,21 +46,6 @@ The same cluster architecture is reproduced as infrastructure-as-code in `terraf
 
 ---
 
-## Security Controls
-
-| NIST 800-53 Control | Kubernetes Implementation |
-|---|---|
-| AC-6 Least Privilege | RBAC with scoped roles and service accounts |
-| AC-4 Information Flow | Calico Network Policies restricting pod-to-pod traffic |
-| SC-28 Protection at Rest | etcd encryption at rest, swap disabled |
-| AU-2 Audit Events | API server audit logging |
-| AU-9 Audit Protection | Centralized log collection with immutable retention |
-| SI-7 Software Integrity | Image scanning via Trivy in CI/CD pipeline |
-| CM-6 Configuration Settings | Version pinning, SystemdCgroup enforcement, static IPs |
-| CP-9 Information Backup | etcd snapshot backup and restore procedures |
-
----
-
 ## Repository Structure
 
 ```

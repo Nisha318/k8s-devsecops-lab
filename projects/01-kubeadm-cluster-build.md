@@ -8,10 +8,12 @@ VM provisioning through cluster initialization and workload deployment.
 
 ## Problem Statement
 
-Transitioning from cybersecurity compliance into DevSecOps engineering requires
-hands-on Kubernetes experience beyond what managed services like EKS provide.
-A self-managed kubeadm cluster forces engagement with every layer of the
-platform, from the container runtime up through the control plane components.
+Preparing for the CKA exam requires hands-on experience with Kubernetes at the
+component level. Managed services like EKS abstract away the control plane,
+making it impossible to practice the cluster administration, troubleshooting,
+and operational tasks the exam tests. A self-managed kubeadm cluster on bare
+metal provides the environment needed to work directly with etcd, kubelet,
+kubeadm, and the full Kubernetes control plane.
 
 ## Architecture
 
