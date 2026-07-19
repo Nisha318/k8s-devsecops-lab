@@ -1,0 +1,31 @@
+# Copy this file to terraform.tfvars and fill in your values
+# terraform.tfvars is in .gitignore; never commit it
+
+# Your AWS region
+aws_region = "us-east-1"
+
+# Name prefix for all AWS resources
+cluster_name = "cka-lab"
+
+# Kubernetes version to install (minor version only)
+kubernetes_version = "1.31"
+
+# Name of your existing EC2 key pair (created in AWS console or CLI)
+# aws ec2 create-key-pair --key-name cka-lab-key --query KeyMaterial --output text > ~/.ssh/cka-lab-key.pem
+key_name = "cka-lab-key"
+
+# Restrict SSH to your IP only (find it at: curl ifconfig.me)
+# Replace x.x.x.x with your actual IP
+ssh_allowed_cidr = "x.x.x.x/32"
+
+# Instance types
+# t3.medium = 2 vCPU / 4GB RAM = ~$0.0416/hr (control plane minimum)
+# t3.small  = 2 vCPU / 2GB RAM = ~$0.0208/hr (workers)
+control_plane_instance_type = "t3.medium"
+worker_instance_type        = "t3.small"
+
+# Number of worker nodes (default 2 to mirror ESXi lab)
+worker_count = 2
+
+# Calico CNI version
+calico_version = "v3.27.0"

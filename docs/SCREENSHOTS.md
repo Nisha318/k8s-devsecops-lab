@@ -114,12 +114,34 @@ Full output of `kubeadm init` on kmaster ending with control-plane initializatio
 ## Troubleshooting Evidence
 
 Screenshots documenting real errors encountered and resolved during the lab build.
+Full root cause analysis and fix in `docs/03-troubleshooting-logs/lab-build-errors.md`.
 
-| File | Error |
-|---|---|
-| `error5-A-kubelet-status-crashloop.png` | kubelet activating (auto-restart) after swap re-enabled on reboot |
-| `error5-B-kubectl-connection-refused.png` | API server unreachable while kubelet was down |
-| `error5-C-containers-all-exited.png` | All control plane containers in Exited state |
-| `error5-D-journalctl-swap-error.png` | Root cause confirmed: swap re-enabled after reboot |
+---
+
+### Error 5A: kubelet Crash Loop
+`systemctl status kubelet` showing activating (auto-restart) with exit-code failure after swap re-enabled on reboot.
+
+![kubelet crash loop](../assets/error5-A-kubelet-status-crashloop.png)
+
+---
+
+### Error 5B: API Server Unreachable
+`kubectl get nodes` returning connection refused while kubelet was down.
+
+![kubectl connection refused](../assets/error5-B-kubectl-connection-refused.png)
+
+---
+
+### Error 5C: All Containers Exited
+`crictl ps -a` showing all control plane containers in Exited state.
+
+![containers all exited](../assets/error5-C-containers-all-exited.png)
+
+---
+
+### Error 5D: Root Cause Confirmed
+`journalctl -u kubelet` showing swap detected, kubelet refuses to start.
+
+![journalctl swap error](../assets/error5-D-journalctl-swap-error.png)
 
 Full root cause analysis and fix documented in `docs/03-troubleshooting-logs/lab-build-errors.md`.
