@@ -74,17 +74,6 @@ Service CIDR: 10.96.0.0/12 (kubeadm default)
 | netplan YAML indentation error | Fixed route block indentation; documented YAML spacing rules |
 | netplan permissions warning | chmod 600 on netplan config file |
 
-## Compliance Connections
-
-This build maps directly to NIST 800-53 controls relevant to container platforms:
-
-| Control | Implementation |
-|---|---|
-| CM-7 Least Functionality | NoSchedule taint on control plane prevents workload co-location |
-| CM-6 Configuration Settings | kubeadm-config stored in ConfigMap, all settings documented |
-| SC-28 Protection at Rest | Swap disabled prevents container memory exposure to disk |
-| SI-2 Flaw Remediation | Version pinning supports controlled, tested upgrades |
-
 ## Next Steps
 
 - Deploy first workload and verify pod scheduling across workers
