@@ -1,6 +1,6 @@
 # Kubernetes CKA Lab
 
-> A self-managed Kubernetes cluster built from scratch on bare metal ESXi using kubeadm. Covers all five CKA exam domains with hands-on implementation, security controls mapped to NIST 800-53, and real troubleshooting documentation.
+> A self-managed Kubernetes cluster built from scratch on bare metal ESXi using kubeadm. Covers all five CKA exam domains with hands-on implementation, and real troubleshooting documentation.
 
 ---
 
