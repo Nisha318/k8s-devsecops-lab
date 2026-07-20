@@ -229,12 +229,29 @@ and exam.
 
 ---
 
-#### Restore: Approach 1 (New Data Directory)
+#### Restore: Approach 1 (Official Recommendation: Stop API Server First)
 
-Use when the cluster is healthy and you are restoring to a new data directory.
-This is the simpler approach and the one to default to on the exam.
+The official Kubernetes documentation states: if any API servers are running
+in your cluster, you should not attempt to restore instances of etcd. This is
+the recommended default procedure for all restore scenarios.
 
-**Step 1: Check the exact backup filename before restoring**
+**Step 1: Stop the API server and etcd by moving their manifests out**
+
+```bash
+sudo mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/
+sudo mv /etc/kubernetes/manifests/etcd.yaml /tmp/
+```
+
+**Step 2: Confirm both containers have stopped**
+
+```bash
+sudo crictl ps
+```
+
+Wait until neither `kube-apiserver` nor `etcd` appears in the output.
+This typically takes 15-30 seconds.
+
+**Step 3: Check the exact backup filename**
 
 ```bash
 ls -lh /opt/backup-*.db
@@ -243,23 +260,24 @@ ls -lh /opt/backup-*.db
 Use the exact filename in the restore command. Do not rely on `$(date)` because
 it evaluates to the current time, not the backup time.
 
-**Step 2: Restore to a new data directory**
+**Step 4: Run the restore**
+
+The `--data-dir` flag specifies a new directory that will be created during
+the restore process. No certs needed. The restore reads the snapshot file
+locally.
 
 ```bash
-sudo etcdutl snapshot restore /opt/etcd-backup.db \
-  --data-dir=/var/lib/etcd-restored
-# No certs needed, reads the snapshot file locally
-# Creates and populates the new directory before etcd tries to read it
+sudo etcdutl --data-dir /var/lib/etcd-restored snapshot restore /opt/etcd-backup.db
 ```
 
 <!-- SCREENSHOT: etcd-05-snapshot-restore.png -->
 <!-- Shows: etcdutl restore log output confirming path, wal-dir, data-dir, snap-dir, and "restored snapshot" -->
 ![snapshot restore output](../../assets/etcd-05-snapshot-restore.png)
 
-**Step 3: Update the etcd static pod manifest in TWO places**
+**Step 5: Update the etcd manifest in both places before moving it back**
 
 ```bash
-sudo vi /etc/kubernetes/manifests/etcd.yaml
+sudo vi /tmp/etcd.yaml
 ```
 
 Use find and replace in vi to catch both lines at once:
@@ -298,85 +316,6 @@ Save and exit:
 :wq
 ```
 
-**Step 4: Wait for etcd to restart (30-60 seconds)**
-
-```bash
-watch kubectl get pods -n kube-system
-```
-
-The API server will timeout briefly during etcd restart. This is normal.
-Wait for `etcd-kmaster` to show `1/1 Running` before running any kubectl
-commands.
-
-<!-- SCREENSHOT: etcd-08-post-restore-pods.png -->
-<!-- Shows: watch kubectl get pods -n kube-system with all pods 1/1 Running including etcd-kmaster -->
-![post-restore pod health](../../assets/etcd-08-post-restore-pods.png)
-
-**Step 5: Verify restore succeeded**
-
-```bash
-kubectl get deployments && kubectl get namespaces
-```
-
-Objects that existed at snapshot time should be back. Anything created after
-the snapshot was taken is permanently lost. This is your RPO boundary.
-
-<!-- SCREENSHOT: etcd-09-restore-verify.png -->
-<!-- Shows: kubectl get deployments listing test-app, kubectl get namespaces listing restore-test -->
-![restore verification](../../assets/etcd-09-restore-verify.png)
-
----
-
-#### Restore: Approach 2 (Stop Manifests First)
-
-Use when the cluster is degraded, the API server is unresponsive, or you are
-restoring to the same data directory rather than a new one.
-
-**Step 1: Move the API server and etcd manifests out**
-
-```bash
-sudo mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/
-sudo mv /etc/kubernetes/manifests/etcd.yaml /tmp/
-```
-
-**Step 2: Confirm both containers have stopped**
-
-```bash
-sudo crictl ps
-```
-
-Wait until neither `kube-apiserver` nor `etcd` appears in the output.
-This typically takes 15-30 seconds.
-
-**Step 3: Check the exact backup filename**
-
-```bash
-ls -lh /opt/backup-*.db
-```
-
-**Step 4: Run the restore**
-
-```bash
-sudo etcdutl snapshot restore /opt/etcd-backup.db \
-  --data-dir=/var/lib/etcd-restored
-```
-
-**Step 5: Update the etcd manifest in both places before moving it back**
-
-```bash
-sudo vi /tmp/etcd.yaml
-```
-
-Use find and replace in vi:
-```
-:%s/\/var\/lib\/etcd$/\/var\/lib\/etcd-restored/g
-```
-
-Confirm both `--data-dir` and `hostPath.path` are updated, then save:
-```
-:wq
-```
-
 **Step 6: Move both manifests back**
 
 ```bash
@@ -394,7 +333,87 @@ watch kubectl get pods -n kube-system
 
 Wait for `etcd-kmaster` and `kube-apiserver-kmaster` to show `1/1 Running`.
 
-**Step 8: Verify restore succeeded**
+**Step 8: Restart additional control plane components**
+
+The official Kubernetes documentation recommends restarting kube-scheduler,
+kube-controller-manager, and kubelet after a restore to ensure they do not
+rely on stale data. In practice they restart themselves when they lose leader
+lock during the restore, but an explicit restart confirms clean state.
+
+```bash
+sudo systemctl restart kubelet
+```
+
+The scheduler and controller manager are static pods and will restart
+automatically when etcd and the API server are back. Verify all components
+are healthy:
+
+```bash
+kubectl get pods -n kube-system
+```
+
+**Step 9: Verify restore succeeded**
+
+```bash
+kubectl get deployments && kubectl get namespaces
+```
+
+Objects that existed at snapshot time should be back. Anything created after
+the snapshot was taken is permanently lost. This is your RPO boundary.
+
+<!-- SCREENSHOT: etcd-08-post-restore-pods.png -->
+<!-- Shows: watch kubectl get pods -n kube-system with all pods 1/1 Running including etcd-kmaster -->
+![post-restore pod health](../../assets/etcd-08-post-restore-pods.png)
+
+<!-- SCREENSHOT: etcd-09-restore-verify.png -->
+<!-- Shows: kubectl get deployments listing test-app, kubectl get namespaces listing restore-test -->
+![restore verification](../../assets/etcd-09-restore-verify.png)
+
+---
+
+#### Restore: Approach 2 (Without Stopping API Server)
+
+This is a shortcut that works when restoring to a new data directory on a
+healthy cluster. It is not what the official docs recommend but is faster
+and commonly seen in CKA prep materials. Use Approach 1 as the default.
+
+**Step 1: Check the exact backup filename**
+
+```bash
+ls -lh /opt/backup-*.db
+```
+
+**Step 2: Restore to a new data directory**
+
+```bash
+sudo etcdutl --data-dir /var/lib/etcd-restored snapshot restore /opt/etcd-backup.db
+```
+
+**Step 3: Update the etcd static pod manifest in TWO places**
+
+```bash
+sudo vi /etc/kubernetes/manifests/etcd.yaml
+```
+
+Use find and replace in vi:
+```
+:%s/\/var\/lib\/etcd$/\/var\/lib\/etcd-restored/g
+```
+
+Confirm both `--data-dir` and `hostPath.path` are updated, then save:
+```
+:wq
+```
+
+**Step 4: Wait for etcd to restart (30-60 seconds)**
+
+```bash
+watch kubectl get pods -n kube-system
+```
+
+The API server will timeout briefly during etcd restart. This is normal.
+
+**Step 5: Verify restore succeeded**
 
 ```bash
 kubectl get deployments && kubectl get namespaces
@@ -406,10 +425,10 @@ kubectl get deployments && kubectl get namespaces
 
 | Situation | Approach |
 |---|---|
-| Restoring to a new data directory, cluster is healthy | Approach 1 (simpler, fewer steps) |
-| Restoring to the same data directory | Approach 2 required |
-| Cluster is degraded or API server unresponsive | Approach 2 (safer) |
-| CKA exam task | Either is accepted. Default to Approach 1. |
+| Default for all restore scenarios | Approach 1 (official recommendation) |
+| Cluster is degraded or API server unresponsive | Approach 1 required |
+| Restoring to the same data directory | Approach 1 required |
+| Healthy cluster, new data directory, time pressure | Approach 2 (shortcut, works in practice) |
 
 ---
 
