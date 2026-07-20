@@ -89,7 +89,42 @@ etcd is the cluster database. All objects (pods, deployments, secrets, RBAC
 bindings) live here. Losing etcd means losing all cluster state since the
 last backup. Backup and restore appear on every CKA exam.
 
-**Cert paths (memorize these):**
+---
+
+#### Version Reference
+
+| Environment | Kubernetes | etcd |
+|---|---|---|
+| This lab | v1.31.14 | v3.5.24 |
+| CKA exam (current) | v1.35 | v3.6.x |
+
+The exam environment runs etcd v3.6.x. Tool deprecations that began in v3.5
+are slated for removal in v3.6. Use `etcdutl` for restore and status on both
+the exam and in this lab.
+
+---
+
+#### Tool Selection
+
+| Operation | Tool | Notes |
+|---|---|---|
+| `snapshot save` | `etcdctl` | Current, no change |
+| `snapshot status` | `etcdutl` | `etcdctl status` deprecated in v3.5, removed in v3.6 |
+| `snapshot restore` | `etcdutl` | `etcdctl restore` deprecated in v3.5, removed in v3.6 |
+
+On the exam cluster, confirm both tools are available before starting any
+etcd task:
+
+```bash
+which etcdctl && which etcdutl
+```
+
+If either is missing, refer to the install procedure in
+`projects/01-kubeadm-cluster-build.md`.
+
+---
+
+#### Cert Paths (Memorize These)
 
 | What | Path |
 |---|---|
@@ -103,15 +138,17 @@ Verify cert paths from the static pod manifest if unsure:
 sudo cat /etc/kubernetes/manifests/etcd.yaml | grep -A5 "command:"
 ```
 
+<!-- SCREENSHOT: etcd-01-cert-paths.png -->
+<!-- Shows: grep output from etcd.yaml displaying cert-file path and data-dir -->
 ![cert paths verification](../../assets/etcd-01-cert-paths.png)
 
 ---
 
-**Inspect etcd keys directly:**
+#### Inspect etcd Keys Directly
 
-etcd v3.5+ runs on a distroless image.  Therefore, no shell is available. The `sh -c`
-wrapper fails with "executable file not found." Call etcdctl directly without
-a shell wrapper.
+etcd v3.5+ runs on a distroless image with no shell, no cat, and no tar. The
+`sh -c` wrapper fails with "executable file not found." Call etcdctl directly
+without a shell wrapper.
 
 ```bash
 kubectl exec etcd-kmaster -n kube-system -- etcdctl get /registry/pods \
@@ -122,11 +159,23 @@ kubectl exec etcd-kmaster -n kube-system -- etcdctl get /registry/pods \
   --endpoints=https://127.0.0.1:2379
 ```
 
+<!-- SCREENSHOT: etcd-02-keys.png -->
+<!-- Shows: kubectl exec output listing /registry/pods/... and /registry/namespaces/... keys -->
 ![etcd keys output](../../assets/etcd-02-keys.png)
 
 ---
 
-**Backup:**
+#### Backup
+
+There are two backup methods. The snapshot method is what the CKA exam tests.
+The file-level method is an operational alternative for offline scenarios.
+
+| Method | Tool | etcd Running? | Output | CKA Exam |
+|---|---|---|---|---|
+| Snapshot backup | `etcdctl snapshot save` | Yes, live | `.db` snapshot file | Yes, this is tested |
+| File-level backup | `etcdutl backup` | No, offline | Raw data and WAL files | No |
+
+**Method 1: Snapshot Backup (CKA exam method)**
 
 Always use ETCDCTL_API=3. Inline it per command on the exam to avoid state
 issues across terminal tabs.
@@ -137,46 +186,77 @@ sudo etcdctl \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
   --cert=/etc/kubernetes/pki/etcd/server.crt \
   --key=/etc/kubernetes/pki/etcd/server.key \
-  snapshot save /opt/backup-20260720-0304.db
+  snapshot save /opt/etcd-backup.db
 ```
 
+<!-- SCREENSHOT: etcd-03-snapshot-save.png -->
+<!-- Shows: JSON log output ending in "Snapshot saved at /opt/etcd-backup.db" with size and timing -->
 ![snapshot save output](../../assets/etcd-03-snapshot-save.png)
+
+**Method 2: File-level Backup (offline only)**
+
+Used when etcd is not running. Copies the raw data directory and WAL files
+to a backup location. etcd must be stopped first or the files may be in an
+inconsistent state.
+
+```bash
+etcdutl backup \
+  --data-dir /var/lib/etcd \
+  --backup-dir /backup/etcd-backup
+```
+
+To restore from a file-level backup, copy the backup contents back into
+`/var/lib/etcd` and restart etcd. No snapshot restore command is needed.
 
 ---
 
-**Verify the snapshot:**
+#### Verify the Snapshot
 
 ```bash
-sudo etcdctl snapshot status /opt/etcd-backup.db --write-out=table
+sudo etcdutl snapshot status /opt/etcd-backup.db --write-out=table
 ```
 
 A valid snapshot shows all four fields populated. A corrupted or incomplete
 snapshot either fails this command or shows a size mismatch.
 
+Note: `etcdctl snapshot status` still works on etcd v3.5.x but prints a
+deprecation warning and is removed in v3.6. Use `etcdutl` for both lab
+and exam.
+
+<!-- SCREENSHOT: etcd-04-snapshot-status.png -->
+<!-- Shows: table output with HASH, REVISION, TOTAL KEYS, TOTAL SIZE columns populated -->
 ![snapshot status table](../../assets/etcd-04-snapshot-status.png)
 
 ---
 
-**Restore (three steps, order matters):**
+#### Restore: Approach 1 (New Data Directory)
 
-The restore command creates a new data directory on disk. The manifest update
-tells etcd to use it. Order is fixed: build the directory before sending etcd
-to live there.
+Use when the cluster is healthy and you are restoring to a new data directory.
+This is the simpler approach and the one to default to on the exam.
 
-Step 1: restore to a new data directory:
+**Step 1: Check the exact backup filename before restoring**
+
 ```bash
-sudo etcdctl \
-  snapshot restore /opt/backup-20260720-0304.db \
-  --data-dir=/var/lib/etcd-from-backup
-# No certs needed -- reads the snapshot file locally
+ls -lh /opt/backup-*.db
+```
+
+Use the exact filename in the restore command. Do not rely on `$(date)` because
+it evaluates to the current time, not the backup time.
+
+**Step 2: Restore to a new data directory**
+
+```bash
+sudo etcdutl snapshot restore /opt/etcd-backup.db \
+  --data-dir=/var/lib/etcd-restored
+# No certs needed, reads the snapshot file locally
 # Creates and populates the new directory before etcd tries to read it
 ```
 
+<!-- SCREENSHOT: etcd-05-snapshot-restore.png -->
+<!-- Shows: etcdutl restore log output confirming path, wal-dir, data-dir, snap-dir, and "restored snapshot" -->
 ![snapshot restore output](../../assets/etcd-05-snapshot-restore.png)
 
----
-
-Step 2: update the etcd static pod manifest (TWO places):
+**Step 3: Update the etcd static pod manifest in TWO places**
 
 ```bash
 sudo vi /etc/kubernetes/manifests/etcd.yaml
@@ -189,10 +269,24 @@ Use find and replace in vi to catch both lines at once:
 
 Place 1: the `--data-dir` flag under `spec.containers.command`:
 
+```yaml
+- --data-dir=/var/lib/etcd-restored
+```
+
+<!-- SCREENSHOT: etcd-06-manifest-command.png -->
+<!-- Shows: vi with --data-dir=/var/lib/etcd-restored highlighted under command section -->
 ![manifest data-dir flag](../../assets/etcd-06-manifest-command.png)
 
 Place 2: the `hostPath.path` under `spec.volumes`:
 
+```yaml
+  - hostPath:
+      path: /var/lib/etcd-restored
+    name: etcd-data
+```
+
+<!-- SCREENSHOT: etcd-07-manifest-volume.png -->
+<!-- Shows: vi with hostPath.path=/var/lib/etcd-restored updated under volumes section -->
 ![manifest hostPath volume](../../assets/etcd-07-manifest-volume.png)
 
 Missing the hostPath update is the most common restore failure. etcd starts
@@ -204,23 +298,21 @@ Save and exit:
 :wq
 ```
 
----
-
-Step 3:  wait for etcd to restart (30-60 seconds):
+**Step 4: Wait for etcd to restart (30-60 seconds)**
 
 ```bash
 watch kubectl get pods -n kube-system
 ```
 
-The API server will timeout briefly during etcd restart -- this is normal.
+The API server will timeout briefly during etcd restart. This is normal.
 Wait for `etcd-kmaster` to show `1/1 Running` before running any kubectl
 commands.
 
+<!-- SCREENSHOT: etcd-08-post-restore-pods.png -->
+<!-- Shows: watch kubectl get pods -n kube-system with all pods 1/1 Running including etcd-kmaster -->
 ![post-restore pod health](../../assets/etcd-08-post-restore-pods.png)
 
----
-
-**Verify restore succeeded:**
+**Step 5: Verify restore succeeded**
 
 ```bash
 kubectl get deployments && kubectl get namespaces
@@ -229,27 +321,135 @@ kubectl get deployments && kubectl get namespaces
 Objects that existed at snapshot time should be back. Anything created after
 the snapshot was taken is permanently lost. This is your RPO boundary.
 
+<!-- SCREENSHOT: etcd-09-restore-verify.png -->
+<!-- Shows: kubectl get deployments listing test-app, kubectl get namespaces listing restore-test -->
 ![restore verification](../../assets/etcd-09-restore-verify.png)
 
 ---
 
-**Critical gotchas:**
+#### Restore: Approach 2 (Stop Manifests First)
+
+Use when the cluster is degraded, the API server is unresponsive, or you are
+restoring to the same data directory rather than a new one.
+
+**Step 1: Move the API server and etcd manifests out**
+
+```bash
+sudo mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/
+sudo mv /etc/kubernetes/manifests/etcd.yaml /tmp/
+```
+
+**Step 2: Confirm both containers have stopped**
+
+```bash
+sudo crictl ps
+```
+
+Wait until neither `kube-apiserver` nor `etcd` appears in the output.
+This typically takes 15-30 seconds.
+
+**Step 3: Check the exact backup filename**
+
+```bash
+ls -lh /opt/backup-*.db
+```
+
+**Step 4: Run the restore**
+
+```bash
+sudo etcdutl snapshot restore /opt/etcd-backup.db \
+  --data-dir=/var/lib/etcd-restored
+```
+
+**Step 5: Update the etcd manifest in both places before moving it back**
+
+```bash
+sudo vi /tmp/etcd.yaml
+```
+
+Use find and replace in vi:
+```
+:%s/\/var\/lib\/etcd$/\/var\/lib\/etcd-restored/g
+```
+
+Confirm both `--data-dir` and `hostPath.path` are updated, then save:
+```
+:wq
+```
+
+**Step 6: Move both manifests back**
+
+```bash
+sudo mv /tmp/etcd.yaml /etc/kubernetes/manifests/
+sudo mv /tmp/kube-apiserver.yaml /etc/kubernetes/manifests/
+```
+
+kubelet detects the manifests and starts both containers immediately.
+
+**Step 7: Wait for everything to come back**
+
+```bash
+watch kubectl get pods -n kube-system
+```
+
+Wait for `etcd-kmaster` and `kube-apiserver-kmaster` to show `1/1 Running`.
+
+**Step 8: Verify restore succeeded**
+
+```bash
+kubectl get deployments && kubectl get namespaces
+```
+
+---
+
+#### When to Use Which Approach
+
+| Situation | Approach |
+|---|---|
+| Restoring to a new data directory, cluster is healthy | Approach 1 (simpler, fewer steps) |
+| Restoring to the same data directory | Approach 2 required |
+| Cluster is degraded or API server unresponsive | Approach 2 (safer) |
+| CKA exam task | Either is accepted. Default to Approach 1. |
+
+---
+
+#### Critical Gotchas
 
 1. Snapshot order matters. Correct drill sequence:
    `create --> backup --> delete --> restore --> verify`
 
-2. Two-place edit in etcd.yaml, both `--data-dir` flag and
+2. Two-place edit in etcd.yaml: both `--data-dir` flag and
    `volumes.hostPath.path` must point to the new directory.
 
-3. etcd is a distroless image with no shell in etcd v3.5+ containers.
-   Drop the `sh -c` wrapper and call etcdctl directly.
+3. etcd distroless image: no shell, no cat, no tar in etcd v3.5+
+   containers. Drop the `sh -c` wrapper and call etcdctl directly.
 
-4. API version. Always use ETCDCTL_API=3. At start of session or inline per command on the exam:
+4. API version: always use ETCDCTL_API=3 with etcdctl for snapshot save.
+   Inline per command on the exam:
    `sudo ETCDCTL_API=3 etcdctl snapshot save ...`
+   etcdutl does not require the API version flag.
 
-5. Restore file naming:  use `ls -lh /opt/backup-*.db` to confirm the
-   exact filename before running restore. The `$(date)` pattern in the
-   restore command evaluates to the current time, not the backup time.
+5. Restore file naming: use `ls -lh /opt/backup-*.db` to confirm the
+   exact filename before running restore.
+
+6. Tool availability: run `which etcdctl && which etcdutl` before starting
+   any etcd task on the exam cluster. If either is missing, use the tarball
+   install procedure in projects/01-kubeadm-cluster-build.md.
+
+7. etcd v3.6 on CKA exam: the exam runs Kubernetes v1.35 with etcd
+   v3.6.x. etcdctl restore and etcdctl status are removed in v3.6. Use
+   etcdutl for both. etcdctl snapshot save still works.
+
+---
+
+#### NIST 800-53 Mapping
+
+| Control | Maps To |
+|---|---|
+| CP-9 Information System Backup | etcd snapshot save procedure |
+| CP-10 Information System Recovery | etcd snapshot restore procedure |
+| RPO | Backup frequency determines data loss window |
+| RTO | Restore + manifest update + etcd restart time |
 
 ---
 
@@ -268,4 +468,7 @@ the snapshot was taken is permanently lost. This is your RPO boundary.
 - This lab uses containerd as the CRI
 - Calico is the CNI plugin (pod CIDR: 10.244.0.0/16, patched from Calico default of 192.168.0.0/16)
 - kubeadm version: v1.31.14
+- etcd version: v3.5.24 (lab) / v3.6.x (CKA exam environment on Kubernetes v1.35)
+- etcd image is distroless with no shell, no tar, and no cat available inside the container
+- etcdctl and etcdutl installed at /usr/local/bin/ in this lab. See projects/01-kubeadm-cluster-build.md for the install procedure. Tool availability on exam clusters is not explicitly documented by the Linux Foundation and should be verified with `which etcdctl && which etcdutl` at the start of any etcd task.
 - Control plane taint: node-role.kubernetes.io/control-plane:NoSchedule
