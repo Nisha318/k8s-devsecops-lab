@@ -227,7 +227,7 @@ kubectl get deployments && kubectl get namespaces
 ```
 
 Objects that existed at snapshot time should be back. Anything created after
-the snapshot was taken is permanently lost -- this is your RPO boundary.
+the snapshot was taken is permanently lost. This is your RPO boundary.
 
 ![restore verification](../../assets/etcd-09-restore-verify.png)
 
