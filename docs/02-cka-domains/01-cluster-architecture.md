@@ -148,8 +148,9 @@ etcd task:
 which etcdctl && which etcdutl
 ```
 
-If either is missing, refer to the install procedure in
-`projects/01-kubeadm-cluster-build.md`.
+If either is missing, check the official Kubernetes documentation at
+https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/
+for guidance on the exam cluster's etcd version and available tooling.
 
 ---
 
@@ -162,10 +163,14 @@ If either is missing, refer to the install procedure in
 | Server key | `/etc/kubernetes/pki/etcd/server.key` |
 | Endpoint | `https://127.0.0.1:2379` |
 
-Verify cert paths from the static pod manifest if unsure:
+Verify cert paths, endpoint, and data directory from the static pod manifest:
+
 ```bash
-sudo cat /etc/kubernetes/manifests/etcd.yaml | grep -A5 "command:"
+sudo cat /etc/kubernetes/manifests/etcd.yaml | grep -E "cert|key|data-dir|endpoints|listen-client"
 ```
+
+This surfaces all cert paths, the data directory, and the client endpoint in
+one pass without reading the full manifest.
 
 <!-- SCREENSHOT: etcd-01-cert-paths.png -->
 <!-- Shows: grep output from etcd.yaml displaying cert-file path and data-dir -->
@@ -303,42 +308,38 @@ sudo etcdutl --data-dir /var/lib/etcd-restored snapshot restore /opt/etcd-backup
 <!-- Shows: etcdutl restore log output confirming path, wal-dir, data-dir, snap-dir, and "restored snapshot" -->
 ![snapshot restore output](../../assets/etcd-05-snapshot-restore.png)
 
-**Step 5: Update the etcd manifest in both places before moving it back**
+**Step 5: Update only the hostPath.path in the etcd manifest**
+
+Only one change is needed in the manifest. The `--data-dir` flag and
+`volumeMounts.mountPath` inside the container stay the same. Only the
+host-side directory path changes, which controls which directory on the
+node gets mounted into the container.
 
 ```bash
 sudo vi /tmp/etcd.yaml
 ```
 
-Use find and replace in vi to catch both lines at once:
-```
-:%s/\/var\/lib\/etcd$/\/var\/lib\/etcd-restored/g
-```
-
-Place 1: the `--data-dir` flag under `spec.containers.command`:
+Find the volumes section at the bottom of the file and update only this:
 
 ```yaml
-- --data-dir=/var/lib/etcd-restored
-```
-
-<!-- SCREENSHOT: etcd-06-manifest-command.png -->
-<!-- Shows: vi with --data-dir=/var/lib/etcd-restored highlighted under command section -->
-![manifest data-dir flag](../../assets/etcd-06-manifest-command.png)
-
-Place 2: the `hostPath.path` under `spec.volumes`:
-
-```yaml
+# Change:
+  volumes:
   - hostPath:
-      path: /var/lib/etcd-restored
+      path: /var/lib/etcd
+      type: DirectoryOrCreate
+    name: etcd-data
+
+# To:
+  volumes:
+  - hostPath:
+      path: /var/lib/etcd-from-backup
+      type: DirectoryOrCreate
     name: etcd-data
 ```
 
-<!-- SCREENSHOT: etcd-07-manifest-volume.png -->
-<!-- Shows: vi with hostPath.path=/var/lib/etcd-restored updated under volumes section -->
-![manifest hostPath volume](../../assets/etcd-07-manifest-volume.png)
-
-Missing the hostPath update is the most common restore failure. etcd starts
-but reads from the wrong directory. Symptom: etcd-kmaster absent from pod
-list, kube-scheduler shows 0/1.
+<!-- SCREENSHOT: etcd-06-manifest-volume.png -->
+<!-- Shows: vi with hostPath.path updated to new restored directory under volumes section -->
+![manifest hostPath volume](../../assets/etcd-06-manifest-volume.png)
 
 Save and exit:
 ```
@@ -412,11 +413,11 @@ official recommendation. Use Approach 1 as the default.
 ls -lh /opt/backup-*.db
 
 # Restore to new data directory
-sudo etcdutl --data-dir /var/lib/etcd-restored snapshot restore /opt/etcd-backup.db
+sudo etcdutl --data-dir /var/lib/etcd-from-backup snapshot restore /opt/etcd-backup.db
 
-# Update etcd.yaml in both places (live manifest, not /tmp)
+# Update only hostPath.path in the live manifest
 sudo vi /etc/kubernetes/manifests/etcd.yaml
-# :%s/\/var\/lib\/etcd$/\/var\/lib\/etcd-restored/g
+# Find volumes section, change path: /var/lib/etcd to path: /var/lib/etcd-from-backup
 
 # Wait for etcd to restart (API server will timeout briefly, this is normal)
 watch kubectl get pods -n kube-system
@@ -443,8 +444,9 @@ kubectl get deployments && kubectl get namespaces
 1. Snapshot order matters. Correct drill sequence:
    `create --> backup --> delete --> restore --> verify`
 
-2. Two-place edit in etcd.yaml: both `--data-dir` flag and
-   `volumes.hostPath.path` must point to the new directory.
+2. Only one edit needed in etcd.yaml: only `volumes.hostPath.path` needs
+   to change. The `--data-dir` flag and `volumeMounts.mountPath` inside
+   the container stay the same. Only the host-side directory path changes.
 
 3. etcd distroless image: no shell, no cat, no tar in etcd v3.5+
    containers. Drop the `sh -c` wrapper and call etcdctl directly.
@@ -458,8 +460,10 @@ kubectl get deployments && kubectl get namespaces
    exact filename before running restore.
 
 6. Tool availability: run `which etcdctl && which etcdutl` before starting
-   any etcd task on the exam cluster. If either is missing, use the tarball
-   install procedure in projects/01-kubeadm-cluster-build.md.
+   any etcd task on the exam cluster. The exam environment should have both
+   available. If not, the official reference page is the only resource
+   accessible during the exam:
+   https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/
 
 7. etcd v3.6 on CKA exam: the exam runs Kubernetes v1.35 with etcd
    v3.6.x. etcdctl restore and etcdctl status are removed in v3.6. Use
