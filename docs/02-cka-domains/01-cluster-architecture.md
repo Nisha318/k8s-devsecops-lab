@@ -1,5 +1,32 @@
 # Cluster Architecture, Installation & Configuration (25%)
 
+## Contents
+
+- [Exam Objectives](#exam-objectives)
+- [Control Plane Components](#control-plane-components)
+- [Worker Node Components](#worker-node-components)
+- [Key Commands](#key-commands)
+  - [Cluster Info](#cluster-info)
+  - [Control Plane Pods](#control-plane-pods)
+  - [RBAC](#rbac)
+  - [kubeadm Cluster Lifecycle](#kubeadm-cluster-lifecycle)
+  - [etcd Backup and Restore](#etcd-backup-and-restore-heavily-tested)
+    - [Version Reference](#version-reference)
+    - [Tool Selection](#tool-selection)
+    - [Cert Paths](#cert-paths-memorize-these)
+    - [Inspect etcd Keys Directly](#inspect-etcd-keys-directly)
+    - [Backup](#backup)
+    - [Verify the Snapshot](#verify-the-snapshot)
+    - [Restore: Approach 1](#restore-approach-1-official-recommendation-stop-api-server-first)
+    - [Restore: Approach 2](#restore-approach-2-without-stopping-api-server)
+    - [When to Use Which Approach](#when-to-use-which-approach)
+    - [Critical Gotchas](#critical-gotchas)
+    - [NIST 800-53 Mapping](#nist-800-53-mapping)
+- [Extension Interfaces](#extension-interfaces)
+- [Lab Notes](#lab-notes)
+
+---
+
 ## Exam Objectives
 
 - Manage role based access control (RBAC)
@@ -84,6 +111,8 @@ kubeadm token create --print-join-command
 ---
 
 ### etcd Backup and Restore (Heavily Tested)
+
+Official reference: https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/
 
 etcd is the cluster database. All objects (pods, deployments, secrets, RBAC
 bindings) live here. Losing etcd means losing all cluster state since the
@@ -213,7 +242,7 @@ To restore from a file-level backup, copy the backup contents back into
 #### Verify the Snapshot
 
 ```bash
-sudo etcdutl snapshot status /opt/etcd-backup.db --write-out=table
+sudo etcdutl --write-out=table snapshot status /opt/etcd-backup.db
 ```
 
 A valid snapshot shows all four fields populated. A corrupted or incomplete
@@ -371,51 +400,28 @@ the snapshot was taken is permanently lost. This is your RPO boundary.
 
 ---
 
-#### Restore: Approach 2 (Without Stopping API Server)
+#### Restore: Approach 2 (Shortcut, Healthy Cluster Only)
 
-This is a shortcut that works when restoring to a new data directory on a
-healthy cluster. It is not what the official docs recommend but is faster
-and commonly seen in CKA prep materials. Use Approach 1 as the default.
-
-**Step 1: Check the exact backup filename**
+On a healthy cluster restoring to a new data directory, you can skip stopping
+the API server and update the live etcd manifest directly. This is faster and
+commonly seen in KodeKloud labs and killer.sh scenarios, but is not the
+official recommendation. Use Approach 1 as the default.
 
 ```bash
+# Check exact backup filename
 ls -lh /opt/backup-*.db
-```
 
-**Step 2: Restore to a new data directory**
-
-```bash
+# Restore to new data directory
 sudo etcdutl --data-dir /var/lib/etcd-restored snapshot restore /opt/etcd-backup.db
-```
 
-**Step 3: Update the etcd static pod manifest in TWO places**
-
-```bash
+# Update etcd.yaml in both places (live manifest, not /tmp)
 sudo vi /etc/kubernetes/manifests/etcd.yaml
-```
+# :%s/\/var\/lib\/etcd$/\/var\/lib\/etcd-restored/g
 
-Use find and replace in vi:
-```
-:%s/\/var\/lib\/etcd$/\/var\/lib\/etcd-restored/g
-```
-
-Confirm both `--data-dir` and `hostPath.path` are updated, then save:
-```
-:wq
-```
-
-**Step 4: Wait for etcd to restart (30-60 seconds)**
-
-```bash
+# Wait for etcd to restart (API server will timeout briefly, this is normal)
 watch kubectl get pods -n kube-system
-```
 
-The API server will timeout briefly during etcd restart. This is normal.
-
-**Step 5: Verify restore succeeded**
-
-```bash
+# Verify
 kubectl get deployments && kubectl get namespaces
 ```
 
