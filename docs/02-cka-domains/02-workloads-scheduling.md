@@ -42,7 +42,7 @@ spec:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1         # max pods above desired count during update
-      maxUnavailable: 0   # zero downtime -- no pods removed before new ones ready
+      maxUnavailable: 0   # zero downtime: no pods removed before new ones ready
 ```
 
 ---
@@ -148,15 +148,18 @@ kubectl get hpa
 ## DaemonSets and StatefulSets
 
 ```bash
-# DaemonSet -- runs one pod per node (monitoring agents, log collectors)
+# DaemonSet: runs one pod per node (monitoring agents, log collectors)
 kubectl get daemonset -n kube-system
 
-# StatefulSet -- stable network identity, ordered deployment (databases)
+# StatefulSet: stable network identity, ordered deployment (databases)
 kubectl get statefulsets
 ```
 
 ---
 ## ReplicaSets
+
+Reference: [How a ReplicaSet Works](https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/#how-a-replicaset-works) | [Object Management](https://kubernetes.io/docs/concepts/overview/working-with-objects/object-management/)
+
 
 ```bash
 # Create from manifest
@@ -168,10 +171,10 @@ kubectl get rs
 # Scale imperatively
 kubectl scale rs brezyweather-rs --replicas=3
 
-# Scale by editing live object
+# Scale by editing live object.  Reference: https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/#scaling-a-replicaset
 kubectl edit rs brezyweather-rs
 
-# Delete ReplicaSet and its pods
+# Delete ReplicaSet and its pods. Reference: https://kubernetes.io/docs/reference/kubectl/generated/kubectl_delete/
 kubectl delete rs brezyweather-rs
 ```
 
@@ -202,7 +205,7 @@ spec:
 ### Key Facts
 - selector.matchLabels must exactly match template.metadata.labels or Kubernetes rejects the manifest
 - kubectl edit modifies the live object directly; update the local manifest separately to stay in sync
-- On the exam, use Deployments over bare ReplicaSets -- Deployments wrap ReplicaSets and add rollout and rollback capability
+- On the exam, use Deployments over bare ReplicaSets. Deployments wrap ReplicaSets and add rollout and rollback capability
 
 ---
 ## Lab Notes
