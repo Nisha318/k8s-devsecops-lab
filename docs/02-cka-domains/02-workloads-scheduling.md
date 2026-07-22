@@ -156,9 +156,59 @@ kubectl get statefulsets
 ```
 
 ---
+## ReplicaSets
 
+```bash
+# Create from manifest
+kubectl apply -f brezyweather-rs.yml
+
+# Check status
+kubectl get rs
+
+# Scale imperatively
+kubectl scale rs brezyweather-rs --replicas=3
+
+# Scale by editing live object
+kubectl edit rs brezyweather-rs
+
+# Delete ReplicaSet and its pods
+kubectl delete rs brezyweather-rs
+```
+
+```yaml
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: brezyweather-rs
+  labels:
+    app: brezyweather
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: brezyweather    # must exactly match template labels below
+  template:
+    metadata:
+      labels:
+        app: brezyweather  # must exactly match selector above
+    spec:
+      containers:
+      - name: brezyweather
+        image: codewithpraveen/labs-k8s-brezyapp:1.0.0
+        ports:
+        - containerPort: 80
+```
+
+### Key Facts
+- selector.matchLabels must exactly match template.metadata.labels or Kubernetes rejects the manifest
+- kubectl edit modifies the live object directly; update the local manifest separately to stay in sync
+- On the exam, use Deployments over bare ReplicaSets -- Deployments wrap ReplicaSets and add rollout and rollback capability
+
+---
 ## Lab Notes
 
 - Rolling update with zero downtime demonstrated: nginx 1.30.4 to 1.31.3
 - maxUnavailable: 0 is the key setting for zero-downtime deployments
 - kubectl rollout undo is the fastest recovery path on the exam
+- kubectl edit modifies the live object only; local manifest must be updated separately
+- Lean container images omit curl; curl the pod IP directly from the node as a workaround
